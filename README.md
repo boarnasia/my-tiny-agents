@@ -2,6 +2,8 @@
 
 AIコーディングのみで実装した、LLMエージェントとMCP（Model Context Protocol）サーバーを組み合わせたミニマリストなエージェントです。
 
+https://github.com/user-attachments/assets/2b364925-d296-47b2-8d04-3435edee6af3
+
 参考: [TinyAgents: A Minimal Experiment with Code Agents and MCP Tools](https://huggingface.co/blog/albertvillanova/tiny-agents)
 
 ## クイックスタート
