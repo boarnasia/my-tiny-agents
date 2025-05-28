@@ -1,0 +1,343 @@
+---
+description: エージェント（tiny_agents.py）開発の詳細ガイドライン
+globs: 
+alwaysApply: false
+---
+# Agent Development Rules
+
+## エージェント（tiny_agents.py）開発の詳細ガイドライン
+
+### 1. エージェントクラスの設計原則
+
+#### 初期化パラメータ：
+```python
+class MyTinyAgent:
+    def __init__(
+        self,
+        model_name: str = "openai/gpt-4.1",
+        max_context_tokens: int = 16000,
+        system_prompt: str = SYSTEM_PROMPT,
+        debug: bool = False
+    ):
+        """エージェントの初期化
+        
+        Args:
+            model_name: 使用するLLMモデル名
+            max_context_tokens: 最大コンテキストトークン数
+            system_prompt: システムプロンプト
+            debug: デバッグモード
+        """
+```
+
+### 2. チャット履歴管理
+
+#### 履歴の構造：
+```python
+# メッセージの形式
+message = {
+    "role": "user" | "assistant" | "system" | "tool",
+    "content": "メッセージ内容",
+    "tool_calls": [...],  # assistantロールの場合
+    "tool_call_id": "...",  # toolロールの場合
+    "name": "tool_name"  # toolロールの場合
+}
+```
+
+#### トークン管理のベストプラクティス：
+```python
+def _should_trim_history(self, current_tokens: int) -> bool:
+    """履歴のトリミングが必要かチェック"""
+    # バッファを考慮（応答用のトークンを確保）
+    buffer_tokens = 1000
+    return current_tokens > (self.max_context_tokens - buffer_tokens)
+
+def _get_trimming_summary(self, trimmed_messages: List[Dict]) -> str:
+    """トリミングされたメッセージの要約を生成"""
+    user_messages = [m for m in trimmed_messages if m["role"] == "user"]
+    assistant_messages = [m for m in trimmed_messages if m["role"] == "assistant"]
+    
+    return (
+        f"[Previous conversation summary: "
+        f"{len(user_messages)} user messages and "
+        f"{len(assistant_messages)} assistant responses were trimmed]"
+    )
+```
+
+### 3. ツール呼び出しの処理
+
+#### ツール呼び出しのフロー：
+```python
+async def _handle_tool_calls(
+    self,
+    tool_calls: List[Any],
+    messages: List[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    """ツール呼び出しを処理"""
+    tool_results = []
+    
+    for tool_call in tool_calls:
+        # 1. ツールの検証
+        if tool_call.function.name not in self.tool_to_session:
+            tool_results.append({
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "name": tool_call.function.name,
+                "content": "Error: Tool not found"
+            })
+            continue
+        
+        # 2. 引数のパース
+        try:
+            args = json.loads(tool_call.function.arguments)
+        except json.JSONDecodeError as e:
+            tool_results.append({
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "name": tool_call.function.name,
+                "content": f"Error: Invalid arguments - {str(e)}"
+            })
+            continue
+        
+        # 3. ツールの実行
+        session = self.tool_to_session[tool_call.function.name]
+        try:
+            result = await session.call_tool(tool_call.function.name, args)
+            content = result.content[0].text if result.content else "No content"
+            
+            tool_results.append({
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "name": tool_call.function.name,
+                "content": content
+            })
+        except Exception as e:
+            tool_results.append({
+                "role": "tool",
+                "tool_call_id": tool_call.id,
+                "name": tool_call.function.name,
+                "content": f"Error: {str(e)}"
+            })
+    
+    return tool_results
+```
+
+### 4. エラーハンドリング戦略
+
+#### 階層的エラーハンドリング：
+```python
+class AgentError(Exception):
+    """エージェント基底例外"""
+    pass
+
+class ModelError(AgentError):
+    """モデル関連のエラー"""
+    pass
+
+class ToolError(AgentError):
+    """ツール実行エラー"""
+    pass
+
+class ConnectionError(AgentError):
+    """接続エラー"""
+    pass
+
+async def safe_process_query(self, query: str) -> str:
+    """安全なクエリ処理"""
+    try:
+        return await self.process_query(query)
+    except ModelError as e:
+        return f"⚠️ モデルエラー: {str(e)}\nモデル設定を確認してください。"
+    except ToolError as e:
+        return f"🔧 ツールエラー: {str(e)}\nツールの実行に失敗しました。"
+    except ConnectionError as e:
+        return f"🌐 接続エラー: {str(e)}\nネットワーク接続を確認してください。"
+    except Exception as e:
+        return f"❌ 予期しないエラー: {str(e)}\n詳細はログを確認してください。"
+```
+
+### 5. 非同期処理のパターン
+
+#### タイムアウト処理：
+```python
+async def _call_model_with_timeout(
+    self,
+    messages: List[Dict[str, Any]],
+    tools: Optional[List[Dict[str, Any]]] = None,
+    timeout: float = 30.0
+) -> Any:
+    """タイムアウト付きモデル呼び出し"""
+    try:
+        return await asyncio.wait_for(
+            self._call_model(messages, tools),
+            timeout=timeout
+        )
+    except asyncio.TimeoutError:
+        raise ModelError(f"Model call timed out after {timeout} seconds")
+```
+
+#### 並行サーバー接続：
+```python
+async def connect_to_multiple_servers_parallel(
+    self,
+    server_paths: List[str]
+) -> None:
+    """複数サーバーに並行接続"""
+    tasks = []
+    for server_path in server_paths:
+        task = asyncio.create_task(
+            self._connect_with_retry(server_path)
+        )
+        tasks.append(task)
+    
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    for server_path, result in zip(server_paths, results):
+        if isinstance(result, Exception):
+            print(f"Failed to connect to {server_path}: {result}")
+        else:
+            print(f"Successfully connected to {server_path}")
+```
+
+### 6. ユーザーインターフェース
+
+#### プロンプトのカスタマイズ：
+```python
+def _format_prompt(self, prompt_type: str = "query") -> str:
+    """プロンプトのフォーマット"""
+    prompts = {
+        "query": "\n🤖 Query: ",
+        "confirm": "\n❓ Confirm (yes/no): ",
+        "retry": "\n🔄 Retry query: "
+    }
+    return prompts.get(prompt_type, "\n> ")
+
+async def chat_loop_enhanced(self):
+    """拡張チャットループ"""
+    print("🚀 My Tiny Agent Started!")
+    print(f"📊 Model: {self.model_name}")
+    print(f"💾 Max tokens: {self.max_context_tokens}")
+    print("💡 Commands: 'quit', 'clear', 'history', 'help'")
+    
+    while True:
+        try:
+            query = input(self._format_prompt("query")).strip()
+            
+            # コマンド処理
+            if query.lower() == "help":
+                self._show_help()
+                continue
+            # ... 他のコマンド処理
+            
+        except KeyboardInterrupt:
+            print("\n👋 Interrupted. Type 'quit' to exit.")
+            continue
+```
+
+### 7. 状態管理
+
+#### セッション状態：
+```python
+@dataclass
+class SessionState:
+    """セッション状態"""
+    start_time: datetime
+    message_count: int = 0
+    token_count: int = 0
+    tool_calls_count: int = 0
+    errors_count: int = 0
+    
+    def increment_messages(self):
+        self.message_count += 1
+    
+    def get_duration(self) -> timedelta:
+        return datetime.now() - self.start_time
+    
+    def get_summary(self) -> str:
+        duration = self.get_duration()
+        return (
+            f"Session: {duration.total_seconds():.0f}s, "
+            f"Messages: {self.message_count}, "
+            f"Tokens: {self.token_count}, "
+            f"Tools: {self.tool_calls_count}, "
+            f"Errors: {self.errors_count}"
+        )
+```
+
+### 8. 拡張性の考慮
+
+#### プラグインシステム：
+```python
+class AgentPlugin:
+    """エージェントプラグインの基底クラス"""
+    
+    async def on_query_start(self, query: str) -> Optional[str]:
+        """クエリ開始時のフック"""
+        return query
+    
+    async def on_response_ready(self, response: str) -> str:
+        """応答準備完了時のフック"""
+        return response
+    
+    async def on_error(self, error: Exception) -> Optional[str]:
+        """エラー発生時のフック"""
+        return None
+
+class LoggingPlugin(AgentPlugin):
+    """ロギングプラグイン"""
+    
+    async def on_query_start(self, query: str) -> Optional[str]:
+        logger.info(f"Query received: {query[:50]}...")
+        return query
+    
+    async def on_error(self, error: Exception) -> Optional[str]:
+        logger.error(f"Error occurred: {error}", exc_info=True)
+        return f"An error occurred. Please try again."
+```
+
+### 9. パフォーマンス最適化
+
+#### レスポンスストリーミング：
+```python
+async def process_query_streaming(
+    self,
+    query: str,
+    callback: Callable[[str], None]
+) -> None:
+    """ストリーミング応答処理"""
+    # ツール呼び出しの処理
+    tool_responses = await self._process_tools(query)
+    
+    # ストリーミング応答
+    async for chunk in self._stream_model_response(messages):
+        callback(chunk)
+```
+
+#### メモリ効率：
+```python
+def _cleanup_old_sessions(self):
+    """古いセッションのクリーンアップ"""
+    if len(self.mcp_client_sessions) > 10:
+        # 最も古いセッションを閉じる
+        oldest = self.mcp_client_sessions.pop(0)
+        asyncio.create_task(oldest.close())
+```
+
+### 10. テスト容易性
+
+#### モックサポート：
+```python
+class MockSession:
+    """テスト用モックセッション"""
+    
+    def __init__(self, tools: List[Dict]):
+        self.tools = tools
+    
+    async def call_tool(self, name: str, args: Dict) -> Any:
+        """モックツール呼び出し"""
+        return MockToolResult(content=[MockContent(text="Mock result")])
+
+# テストモードでの初期化
+if os.getenv("AGENT_TEST_MODE"):
+    agent = MyTinyAgent(model_name="test/mock-model")
+    agent.mcp_client_sessions = [MockSession(mock_tools)]
+``` 

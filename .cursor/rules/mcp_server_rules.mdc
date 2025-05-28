@@ -1,0 +1,282 @@
+---
+description: MCPサーバー実装のガイドライン
+globs: 
+alwaysApply: false
+---
+# MCP Server Development Rules
+
+## MCPサーバー実装の詳細ガイドライン
+
+### 1. サーバー命名規則
+- ファイル名: `{機能名}_server.py` （例: `github_trends_server.py`）
+- サーバー名: 機能を明確に表す名前（例: "GitHub Trends Server"）
+- ツール名: 動詞で始まる明確な名前（例: `fetch_github_trends`）
+
+### 2. ツール設計原則
+
+#### 入力パラメータ：
+- 必須パラメータは最初に配置
+- オプションパラメータにはデフォルト値を設定
+- パラメータ名は明確で自己説明的に
+
+```python
+@mcp.tool()
+def fetch_data(
+    resource_id: str,                    # 必須: リソースID
+    format: str = "json",                # オプション: 出力形式
+    include_metadata: bool = False       # オプション: メタデータ含有
+) -> dict:
+    """データを取得する"""
+```
+
+#### 出力形式：
+- 常に辞書（dict）を返す
+- 成功時とエラー時の構造を統一
+- エラー情報を含める
+
+```python
+# 成功時
+return {
+    "data": result_data,
+    "count": len(result_data),
+    "error": None
+}
+
+# エラー時
+return {
+    "data": None,
+    "count": 0,
+    "error": f"Failed to fetch data: {str(e)}"
+}
+```
+
+### 3. エラーハンドリングパターン
+
+```python
+@mcp.tool()
+def safe_operation(param: str) -> dict:
+    """安全な操作を実行"""
+    try:
+        # バリデーション
+        if not param:
+            return {"success": False, "error": "Parameter cannot be empty"}
+        
+        # メイン処理
+        result = perform_operation(param)
+        
+        return {
+            "success": True,
+            "result": result,
+            "error": None
+        }
+    except SpecificError as e:
+        # 特定のエラーを処理
+        return {
+            "success": False,
+            "result": None,
+            "error": f"Specific error occurred: {str(e)}"
+        }
+    except Exception as e:
+        # 予期しないエラーを処理
+        print(f"Unexpected error in safe_operation: {e}")
+        return {
+            "success": False,
+            "result": None,
+            "error": f"Unexpected error: {str(e)}"
+        }
+```
+
+### 4. 外部APIとの連携
+
+#### APIクライアントの初期化：
+```python
+import os
+from some_api_client import Client
+
+# グローバルスコープでの初期化は避ける
+def get_api_client():
+    """APIクライアントを取得（遅延初期化）"""
+    api_key = os.getenv("API_KEY")
+    if not api_key:
+        raise ValueError("API_KEY environment variable is not set")
+    return Client(api_key=api_key)
+```
+
+#### レート制限の考慮：
+```python
+import time
+from functools import wraps
+
+def rate_limit(calls_per_second: float = 1.0):
+    """レート制限デコレータ"""
+    min_interval = 1.0 / calls_per_second
+    last_called = [0.0]
+    
+    def decorator(func):
+        @wraps(func)
+        def wrapper(*args, **kwargs):
+            elapsed = time.time() - last_called[0]
+            left_to_wait = min_interval - elapsed
+            if left_to_wait > 0:
+                time.sleep(left_to_wait)
+            ret = func(*args, **kwargs)
+            last_called[0] = time.time()
+            return ret
+        return wrapper
+    return decorator
+
+@mcp.tool()
+@rate_limit(calls_per_second=0.5)  # 2秒に1回まで
+def api_intensive_operation(query: str) -> dict:
+    """API集約的な操作"""
+```
+
+### 5. ファイル操作のベストプラクティス
+
+```python
+@mcp.tool()
+def safe_file_operation(file_path: str) -> dict:
+    """安全なファイル操作"""
+    try:
+        # パスの正規化と検証
+        safe_path = os.path.abspath(os.path.expanduser(file_path))
+        
+        # アクセス権限の確認
+        if not os.access(safe_path, os.R_OK):
+            return {"content": None, "error": "Permission denied"}
+        
+        # ファイルサイズの確認（大きすぎるファイルを避ける）
+        file_size = os.path.getsize(safe_path)
+        if file_size > 10 * 1024 * 1024:  # 10MB
+            return {"content": None, "error": "File too large (>10MB)"}
+        
+        # ファイル読み取り
+        with open(safe_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        return {"content": content, "error": None}
+    except Exception as e:
+        return {"content": None, "error": str(e)}
+```
+
+### 6. 非同期処理が必要な場合
+
+MCPサーバーは同期的に動作しますが、内部で非同期処理が必要な場合：
+
+```python
+import asyncio
+
+@mcp.tool()
+def async_wrapper(param: str) -> dict:
+    """非同期処理のラッパー"""
+    try:
+        # 非同期関数を同期的に実行
+        result = asyncio.run(async_operation(param))
+        return {"result": result, "error": None}
+    except Exception as e:
+        return {"result": None, "error": str(e)}
+
+async def async_operation(param: str):
+    """実際の非同期処理"""
+    # 非同期処理の実装
+    await asyncio.sleep(1)
+    return f"Processed: {param}"
+```
+
+### 7. ログ出力のガイドライン
+
+```python
+import logging
+
+# サーバーごとにロガーを設定
+logger = logging.getLogger(__name__)
+
+@mcp.tool()
+def logged_operation(param: str) -> dict:
+    """ログ付き操作"""
+    logger.info(f"Starting operation with param: {param}")
+    
+    try:
+        result = perform_operation(param)
+        logger.info(f"Operation completed successfully")
+        return {"result": result, "error": None}
+    except Exception as e:
+        logger.error(f"Operation failed: {e}", exc_info=True)
+        return {"result": None, "error": str(e)}
+```
+
+### 8. テスト可能な設計
+
+```python
+# 設定を外部化
+class ServerConfig:
+    DEFAULT_TIMEOUT = 30
+    MAX_RETRIES = 3
+    
+# 依存性注入を可能にする
+def create_tool_function(config: ServerConfig = None):
+    if config is None:
+        config = ServerConfig()
+    
+    @mcp.tool()
+    def configurable_tool(param: str) -> dict:
+        """設定可能なツール"""
+        # configを使用した処理
+        return {"result": "success", "config": config.DEFAULT_TIMEOUT}
+    
+    return configurable_tool
+```
+
+### 9. ドキュメント記載例
+
+```python
+@mcp.tool()
+def well_documented_tool(
+    query: str,
+    limit: int = 10,
+    sort_by: str = "relevance"
+) -> dict:
+    """検索を実行して結果を返す
+    
+    Args:
+        query: 検索クエリ文字列
+        limit: 返す結果の最大数（デフォルト: 10、最大: 100）
+        sort_by: ソート順（"relevance", "date", "popularity"のいずれか）
+    
+    Returns:
+        Dictionary containing:
+        - results: 検索結果のリスト
+        - total_count: 総結果数
+        - query_time: クエリ実行時間（ミリ秒）
+        - error: エラーメッセージ（エラー時のみ）
+    
+    Examples:
+        >>> well_documented_tool("Python MCP")
+        {"results": [...], "total_count": 42, "query_time": 123, "error": None}
+    """
+```
+
+### 10. パフォーマンス考慮事項
+
+- 重い処理にはプログレス表示を追加
+- キャッシュ可能な結果はキャッシュする
+- バッチ処理が可能な場合は実装する
+
+```python
+from functools import lru_cache
+
+@lru_cache(maxsize=100)
+def expensive_computation(param: str) -> str:
+    """高コストな計算（キャッシュ付き）"""
+    # 重い処理
+    return result
+
+@mcp.tool()
+def cached_tool(param: str) -> dict:
+    """キャッシュを活用するツール"""
+    try:
+        result = expensive_computation(param)
+        return {"result": result, "cache_hit": True, "error": None}
+    except Exception as e:
+        return {"result": None, "cache_hit": False, "error": str(e)}
+``` 

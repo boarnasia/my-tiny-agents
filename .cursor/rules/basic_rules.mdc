@@ -1,0 +1,182 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# Tiny Agents Development Rules
+
+## プロジェクト概要
+tiny-agentsは、LLMエージェントとMCP（Model Context Protocol）サーバーを組み合わせたミニマリストなフレームワークです。
+
+## 基本原則
+
+### 1. コーディング規約
+- **言語**: Python 3.10以上を使用
+- **インポート**: ワイルドカードインポート（`from module import *`）は禁止
+- **型ヒント**: 可能な限り型ヒントを使用（`typing`モジュールを活用）
+- **非同期処理**: MCPサーバーとの通信は`async/await`を使用
+- **エラーハンドリング**: 適切な例外処理を実装し、ユーザーフレンドリーなエラーメッセージを提供
+
+### 2. プロジェクト構造
+```
+tiny-agents/
+├── tiny_agents.py          # メインエージェント実装
+├── servers/                # MCPサーバー実装
+│   ├── github_trends_server.py
+│   └── command_executor_server.py
+├── pyproject.toml          # 依存関係管理
+├── Makefile               # タスク自動化
+├── README.md              # 日本語ドキュメント
+└── .cursor/rules/         # Cursor設定
+```
+
+### 3. MCPサーバー開発ガイドライン
+
+#### 新しいMCPサーバーを作成する場合：
+```python
+# servers/new_server.py
+from mcp.server.fastmcp import FastMCP
+
+# MCPサーバーインスタンスを作成
+mcp = FastMCP("Server Name")
+
+@mcp.tool()
+def tool_name(param1: str, param2: int = None) -> dict:
+    """ツールの説明を明確に記述
+    
+    Args:
+        param1: パラメータの説明
+        param2: オプションパラメータの説明
+    
+    Returns:
+        Dictionary containing:
+        - result: 結果の説明
+        - error: エラーメッセージ（エラー時のみ）
+    """
+    try:
+        # 実装
+        return {"result": "success", "error": None}
+    except Exception as e:
+        return {"result": None, "error": str(e)}
+
+if __name__ == "__main__":
+    mcp.run()
+```
+
+### 4. エージェント拡張ガイドライン
+
+#### 新機能追加時の考慮事項：
+- **後方互換性**: 既存のAPIを変更する場合は後方互換性を維持
+- **設定可能性**: ハードコードを避け、パラメータ化する
+- **ドキュメント**: 新機能は必ずREADMEに記載
+
+### 5. セキュリティガイドライン
+
+#### コマンド実行サーバー：
+- システムコマンドを実行する機能には必ず承認プロセスを実装
+- 危険なコマンドのリストを維持・更新
+- ユーザーに明確な警告を表示
+
+#### APIキー管理：
+- APIキーは環境変数から読み取る
+- デフォルト値や例にAPIキーを含めない
+- 環境変数が設定されていない場合は警告を表示
+
+### 6. テストとデバッグ
+
+#### デバッグ時の推奨事項：
+- `print()`文でデバッグ情報を出力する際は、何をデバッグしているか明確に記載
+- エラーメッセージには十分なコンテキストを含める
+- トレースバックを適切にフォーマット
+
+### 7. 依存関係管理
+
+#### pyproject.tomlの更新：
+- 新しい依存関係を追加する際は、バージョン範囲を明確に指定
+- 開発用依存関係は`[project.optional-dependencies]`のdevセクションに追加
+- 依存関係の追加理由をコミットメッセージに記載
+
+### 8. ドキュメント作成
+
+#### README.mdの更新：
+- 新機能は「含まれるMCPサーバーの例」セクションに追加
+- 使用例を必ず含める
+- 日本語で記述し、技術用語は適切に使用
+
+### 9. Makefile管理
+
+#### 新しいターゲット追加時：
+- 既存のパターンに従う
+- ヘルプメッセージを必ず追加
+- 仮想環境内で実行されることを確認
+
+### 10. チャット履歴とコンテキスト管理
+
+#### トークン管理：
+- `tiktoken`を使用して正確なトークン数を計算
+- コンテキスト長の制限を考慮した実装
+- トリミング時はユーザーに通知
+
+## コード品質チェックリスト
+
+新しいコードを追加する前に確認：
+- [ ] 型ヒントが適切に付けられているか
+- [ ] エラーハンドリングが実装されているか
+- [ ] ドキュメント文字列（docstring）が記載されているか
+- [ ] セキュリティ上の懸念事項が対処されているか
+- [ ] READMEが更新されているか
+- [ ] 必要に応じてMakefileが更新されているか
+
+## よくあるパターン
+
+### 非同期関数の実装：
+```python
+async def process_data(data: str) -> Dict[str, Any]:
+    """データを処理する
+    
+    Args:
+        data: 処理するデータ
+        
+    Returns:
+        処理結果を含む辞書
+    """
+    try:
+        # 非同期処理
+        result = await some_async_operation(data)
+        return {"success": True, "result": result}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+```
+
+### ツール呼び出しの実装：
+```python
+@mcp.tool()
+def tool_function(required_param: str, optional_param: int = 10) -> dict:
+    """ツールの機能を説明
+    
+    Args:
+        required_param: 必須パラメータの説明
+        optional_param: オプションパラメータの説明（デフォルト: 10）
+        
+    Returns:
+        Dictionary containing:
+        - result: 処理結果
+        - metadata: 追加情報（オプション）
+        - error: エラーメッセージ（エラー時のみ）
+    """
+    # 実装
+```
+
+## デフォルト設定
+
+- **モデル**: `openai/gpt-4.1`
+- **最大コンテキストトークン**: 16,000
+- **エンコーディング**: UTF-8
+- **Python仮想環境**: `.venv`
+
+## 注意事項
+
+1. **MCPプロトコル**: MCPサーバーは標準入出力（stdio）を使用して通信
+2. **非同期処理**: エージェントとサーバー間の通信は非同期で実行
+3. **エラー伝播**: サーバーのエラーは適切にエージェントに伝播させる
+4. **リソース管理**: `AsyncExitStack`を使用してリソースを適切に管理 
