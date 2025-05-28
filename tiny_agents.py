@@ -37,38 +37,129 @@ class Config:
     model_name: str = "openai/gpt-4.1"
     max_context_tokens: int = 16000
     response_buffer: int = 500
-    system_prompt: str = """You are a helpful assistant that can solve any task.
+    system_prompt: str = """You are a helpful AI assistant powered by advanced language models, designed to solve complex tasks using available tools and MCP servers.
 
-When given a complex task that requires multiple steps:
-1. First, present a SINGLE clear action plan listing all the steps you will take
-2. Format your plan as:
-   📋 Action Plan:
-   1. [First action description]
-   2. [Second action description]
-   3. [etc...]
-3. Then IMMEDIATELY execute ALL the tools according to your plan - DO NOT wait for user confirmation
-4. Use the output from one tool as input for the next when needed
-5. After executing all tools, provide a comprehensive summary of what was accomplished
+## Your Role and Capabilities
 
-IMPORTANT: 
-- You MUST execute all the steps in your action plan. Do not just describe what should be done - actually do it by calling the appropriate tools.
-- Present the action plan ONLY ONCE at the beginning. Do not repeat it in your final response.
-- After tool execution, focus on summarizing the results, not restating the plan.
-- When a task requires multiple actions (like "get data and save to file"), you MUST call multiple tools in sequence.
-- **CRITICAL**: If your plan has multiple steps, you MUST call ALL necessary tools in your FIRST response. Do NOT wait for tool results before calling the next tool if you already know what needs to be done.
+You have access to various tools through MCP (Model Context Protocol) servers. Think carefully as you analyze each request and execute tasks efficiently.
 
-For file operations:
-- To save content to a file, use execute_command with commands like: echo 'content' > filename.txt
-- To append to a file, use: echo 'content' >> filename.txt
-- To read a file, use read_file
-- To list files, use list_directory
+### What You CAN Do:
+- Execute multiple tools in sequence to complete complex tasks
+- Read, write, and manipulate files
+- Execute commands and scripts
+- Search and analyze code/text
+- Interact with external services through MCP servers
+- Maintain context across conversations
 
-Example multi-step tasks:
-- "Get GitHub trends and save to file" → Call BOTH fetch_github_trends AND execute_command in the same response
-- "Calculate something and save result" → Call BOTH execute_python AND execute_command in the same response
-- "Read a file and analyze it" → Call BOTH read_file AND execute_python in the same response
+### What You CANNOT Do:
+- Access resources outside the provided tools
+- Execute arbitrary system commands without the appropriate tool
+- Perform actions that require human intervention
+- Access the internet directly (unless through specific tools)
 
-Remember: If you know multiple tools need to be called based on the user's request, call them ALL AT ONCE in your first response."""
+## Task Execution Framework
+
+When given a task, follow this structured approach:
+
+### 1. Analysis Phase (ALWAYS DO THIS FIRST)
+Before taking any action, analyze the request inside <analysis> tags:
+a. Summarize what the user is asking for
+b. Identify the type of task (question, implementation, analysis, etc.)
+c. List the tools/resources needed
+d. Identify potential challenges or dependencies
+e. Determine if this requires single or multiple tool calls
+f. Create a high-level execution plan
+
+### 2. Planning Phase
+Based on your analysis, create an action plan:
+- For simple tasks: Direct execution
+- For complex tasks: Break down into clear steps
+
+Format complex plans as:
+📋 Action Plan:
+1. [First action - what and why]
+2. [Second action - what and why]
+3. [Continue as needed...]
+
+### 3. Execution Phase
+CRITICAL EXECUTION RULES:
+- Execute ALL planned steps - don't just describe what should be done
+- When your plan involves multiple steps, call ALL necessary tools in sequence
+- For tasks like "create a task for each item", you MUST call add_task multiple times
+- After fetching data (like GitHub trends), IMMEDIATELY process it with subsequent tools
+- If you fetch a list of items and plan to process each one, DO IT NOW - don't wait
+- Execute tools sequentially - wait for each tool's result before calling the next
+- Use tool outputs as inputs for subsequent tools when needed
+- Handle errors gracefully and adapt your approach if needed
+- If a tool fails, consider alternatives before proceeding
+- NEVER stop after just the first tool call if your plan has multiple steps
+- When processing lists: parse the response, iterate through items, and call tools for each
+
+### 4. Summary Phase
+After execution:
+- Provide a clear summary of what was accomplished
+- Highlight any important results or findings
+- Note any issues encountered and how they were resolved
+- Suggest next steps if applicable
+
+## Tool Usage Guidelines
+
+### File Operations:
+- Read files: Use appropriate file reading tools
+- Write files: Use file writing tools (create or overwrite)
+- Search files: Use search/grep tools for finding content
+- List contents: Use directory listing tools
+
+### Command Execution:
+- Use command execution tools for system operations
+- Always consider security implications
+- Prefer specific tools over general command execution when available
+
+### Multi-Tool Coordination:
+When multiple tools are needed:
+1. Identify dependencies between tools
+2. Execute tools sequentially - wait for each tool's result before proceeding
+3. Use outputs from previous tools as inputs for subsequent tools
+4. Aggregate results meaningfully
+
+## Important Principles
+
+1. **Sequential Execution**: Execute tools one by one. Wait for each tool's result before calling the next tool to ensure proper data flow and error handling.
+
+2. **Clear Communication**: 
+   - Be concise but thorough in explanations
+   - Use formatting to improve readability
+   - Highlight important information
+
+3. **Error Handling**:
+   - Anticipate potential failures
+   - Provide meaningful error messages
+   - Suggest alternatives when things fail
+
+4. **Context Awareness**:
+   - Remember previous interactions in the conversation
+   - Build upon previous results
+   - Maintain consistency across the session
+
+## Example Patterns
+
+### Pattern 1: Data Processing Pipeline
+User: "Read data.csv, analyze it, and save results"
+→ Call read_file THEN execute_python THEN write_file in sequence
+
+### Pattern 2: Code Analysis
+User: "Find all Python files with 'TODO' comments"
+→ Call search/grep with appropriate patterns
+
+### Pattern 3: Multi-Source Aggregation
+User: "Get GitHub trends and system info, create report"
+→ Call first data source, THEN second data source, THEN create formatted output
+
+### Pattern 4: Batch Task Creation
+User: "Search for Python files with TODO comments and create a review task for each"
+→ Call search_files for TODO patterns THEN call add_task multiple times (once for each file found)
+
+Remember: Your goal is to be helpful, efficient, and thorough. Always think before acting, but once you have a plan, execute it completely."""
     
     recommended_models: dict = field(default_factory=lambda: {
         "openai": "openai/gpt-4.1",
@@ -110,7 +201,10 @@ class Message:
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for API calls."""
         result = {"role": self.role}
-        if self.content:
+        # Always include content for assistant/user/system roles
+        if self.role in ["assistant", "user", "system"]:
+            result["content"] = self.content if self.content else ""
+        elif self.content:  # For tool role, only include if not empty
             result["content"] = self.content
         if self.tool_calls:
             result["tool_calls"] = self.tool_calls
@@ -192,6 +286,16 @@ def display_action_plan(action_plan: str):
         action_plan,
         title="[bold blue]Execution Plan[/bold blue]",
         border_style="blue",
+        box=box.ROUNDED
+    ))
+
+
+def display_analysis(analysis: str):
+    """Display analysis phase results."""
+    console.print(Panel(
+        analysis,
+        title="[bold cyan]🔍 Analysis[/bold cyan]",
+        border_style="cyan",
         box=box.ROUNDED
     ))
 
@@ -701,6 +805,24 @@ class MyTinyAgent:
         output_parts = []
         message = response.choices[0].message
         action_plan_displayed = False
+        analysis_displayed = False
+
+        # Check for analysis phase
+        if message.content and "<analysis>" in message.content:
+            analysis_start = message.content.find("<analysis>")
+            analysis_end = message.content.find("</analysis>")
+            if analysis_end != -1:
+                analysis_content = message.content[analysis_start + 10:analysis_end].strip()
+                display_analysis(analysis_content)
+                analysis_displayed = True
+                # Remove analysis from content for further processing
+                remaining_content = (
+                    message.content[:analysis_start] + 
+                    message.content[analysis_end + 11:]
+                ).strip()
+                
+                # Update message content
+                message.content = remaining_content
 
         # Check for action plan
         if message.content and "📋 Action Plan:" in message.content:
@@ -711,7 +833,7 @@ class MyTinyAgent:
             
             display_action_plan(message.content[plan_start:plan_end])
             action_plan_displayed = True
-        elif message.content:
+        elif message.content and not analysis_displayed:
             output_parts.append(message.content)
         
         # Handle tool calls
@@ -719,7 +841,7 @@ class MyTinyAgent:
             # Create assistant message
             assistant_msg = Message(
                 role="assistant",
-                content=message.content or "",
+                content=message.content if message.content else "",  # Ensure content is never None
                 tool_calls=[{
                     "id": tc.id,
                     "type": tc.type,
@@ -747,20 +869,42 @@ class MyTinyAgent:
                 ) as progress:
                     task = progress.add_task("Generating response...", total=None)
                     
-                    # Rebuild messages for final call
-                    history = self.memory.build_context_messages(system_msg, current_msg, tools_tokens)
-                    recent_start = len(self.memory.messages) - (len(messages) - len(history) - 2)
-                    recent_msgs = [m.to_dict() for m in self.memory.messages[recent_start:]]
-                    
-                    final_messages = (
-                        [system_msg.to_dict()] + 
-                        history + 
-                        [current_msg.to_dict()] + 
-                        recent_msgs
-                    )
-                    
-                    final_response = await self._invoke_llm(final_messages)
+                    # Simply use the current messages list which already has the correct structure
+                    final_response = await self._invoke_llm(messages, tools=tool_schemas if tool_schemas else None)
                     progress.update(task, completed=True)
+                
+                # Check if final response also has tool calls
+                if final_response.choices[0].message.tool_calls:
+                    # If the final response also contains tool calls, process them
+                    console.print("[dim]Processing additional tool calls...[/dim]")
+                    assistant_msg2 = Message(
+                        role="assistant",
+                        content=final_response.choices[0].message.content if final_response.choices[0].message.content else "",
+                        tool_calls=[{
+                            "id": tc.id,
+                            "type": tc.type,
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments
+                            }
+                        } for tc in final_response.choices[0].message.tool_calls]
+                    )
+                    messages.append(assistant_msg2.to_dict())
+                    self.memory.add_message(assistant_msg2)
+                    
+                    # Process the additional tools
+                    tool_parts2, messages = await self._handle_tool_calls(final_response.choices[0].message.tool_calls, messages)
+                    
+                    # Get another final response
+                    with Progress(
+                        SpinnerColumn(),
+                        TextColumn("[progress.description]{task.description}"),
+                        console=console,
+                        transient=True
+                    ) as progress:
+                        task = progress.add_task("Finalizing response...", total=None)
+                        final_response = await self._invoke_llm(messages, tools=tool_schemas if tool_schemas else None)
+                        progress.update(task, completed=True)
                 
                 if final_response.choices[0].message.content:
                     final_content = final_response.choices[0].message.content
@@ -786,7 +930,7 @@ class MyTinyAgent:
                 output_parts.append(error_msg)
                 error_message = Message(role="assistant", content=error_msg)
                 self.memory.add_message(error_message)
-
+            
         elif message.content:
             # Simple response
             response_msg = Message(role="assistant", content=message.content)
@@ -813,6 +957,11 @@ class MyTinyAgent:
             try:
                 console.print()
                 query = Prompt.ask("[bold green]Query[/bold green]")
+                
+                # Handle empty input
+                if not query.strip():
+                    console.print("[yellow]Please enter a query or command. Type 'quit' to exit.[/yellow]")
+                    continue
                 
                 # Handle commands
                 if query.lower() in COMMANDS:
