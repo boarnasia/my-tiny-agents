@@ -25,29 +25,11 @@ from rich.rule import Rule
 from rich import box
 
 from tiny_agents.config import Config
+from tiny_agents.exceptions import AgentError, ServerConnectionError, ToolExecutionError
+
 
 # Initialize Rich console
 console = Console()
-
-# ============================================================================
-# Configuration
-# ============================================================================
-
-# ============================================================================
-# Custom Exceptions
-# ============================================================================
-
-class AgentError(Exception):
-    """Base exception for agent errors."""
-    pass
-
-class ServerConnectionError(AgentError):
-    """Error connecting to MCP server."""
-    pass
-
-class ToolExecutionError(AgentError):
-    """Error executing tool."""
-    pass
 
 
 # ============================================================================
