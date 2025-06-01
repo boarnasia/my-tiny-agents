@@ -37,6 +37,33 @@ from tiny_agents.ui import (
 )
 
 
+__all__ = ["MyTinyAgent"]
+
+
+# ============================================================================
+# Main Entry Point
+# ============================================================================
+
+async def main_agent(
+    server_paths: List[str],
+    model_name: str | None = None,
+    max_context_tokens: int | None = None
+):
+    """Main function to run the agent."""
+    config = Config(
+        model_name=model_name or Config.model_name,
+        max_context_tokens=max_context_tokens or Config.max_context_tokens
+    )
+    
+    agent = MyTinyAgent(config)
+    
+    try:
+        await agent.connect_mcp_servers(server_paths)
+        await agent.run_interactive_session()
+    finally:
+        await agent.shutdown()
+
+
 # ============================================================================
 # Agent Memory (combines TokenManager and ChatHistory)
 # ============================================================================
