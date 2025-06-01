@@ -1,0 +1,19 @@
+# Rye configuration rules
+name = "rye"
+description = "Rye package management configuration"
+
+[commands]
+install = "rye sync"
+build = "rye build"
+publish = "rye publish"
+test = "rye test"
+lint = "rye lint"
+format = "rye fmt"
+
+[paths]
+src = "src"
+tests = "tests"
+dist = "dist"
+
+[python]
+version = "3.10" 

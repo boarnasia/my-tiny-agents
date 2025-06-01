@@ -20,7 +20,9 @@ tiny-agentsは、LLMエージェントとMCP（Model Context Protocol）サー�
 ### 2. プロジェクト構造
 ```
 tiny-agents/
-├── tiny_agents.py          # メインエージェント実装
+├── src/
+│   └── tiny_agents/
+│       └── __main__.py     # メインエージェント実装
 ├── servers/                # MCPサーバー実装
 │   ├── github_trends_server.py
 │   └── command_executor_server.py

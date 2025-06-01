@@ -9,7 +9,7 @@ VENV_PIP = $(VENV_DIR)/bin/pip
 
 # Default server paths and model
 SERVER_PATHS ?= servers/github_trends_server.py servers/command_executor_server.py servers/web_search_server.py servers/python_executor_server.py servers/task_manager_server.py
-MODEL_NAME ?= openai/gpt-4.1
+MODEL_NAME ?= gemini/gemini-2.0-flash-exp
 
 # Setup virtual environment and install dependencies
 install:
@@ -22,9 +22,10 @@ install:
 	$(VENV_PIP) install .
 
 # Run the agent (main command)
-run-agent: install
+#run-agent: install
+run-agent:
 	@echo "Starting Tiny Agent with model: $(MODEL_NAME)"
-	$(VENV_PYTHON) tiny_agents.py $(SERVER_PATHS) --model $(MODEL_NAME)
+	$(VENV_PYTHON) -m tiny_agents $(SERVER_PATHS) --model $(MODEL_NAME)
 
 # Clean up
 clean:
