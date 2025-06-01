@@ -1,5 +1,11 @@
+"""Argument parser for the agent."""
+
 import argparse
 from tiny_agents.config import Config
+
+
+__all__ = ["parse_arguments"]
+
 
 def parse_arguments():
     """Parse command line arguments."""
