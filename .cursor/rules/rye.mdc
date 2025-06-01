@@ -1,0 +1,27 @@
+---
+description:
+globs:
+alwaysApply: false
+---
+# Rye Package Management
+
+This rule defines the configuration for using Rye as the package manager.
+
+## Commands
+
+- `rye sync`: Install dependencies
+- `rye build`: Build the package
+- `rye publish`: Publish the package
+- `rye test`: Run tests
+- `rye lint`: Run linter
+- `rye fmt`: Format code
+
+## Paths
+
+- Source code: `src/`
+- Tests: `tests/`
+- Distribution: `dist/`
+
+## Python Version
+
+- Python 3.10 or higher is required
